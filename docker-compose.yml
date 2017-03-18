@@ -1,0 +1,73 @@
+version: '3'
+
+services:
+  yw-agency1:
+    container_name: yw-agency1
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    image: yw/arangodb:3.1.13
+    ports:
+      - "8529"
+    environment:
+      - ARANGO_NO_AUTH=1
+    command: arangod --server.endpoint tcp://0.0.0.0:8529 --agency.my-address=tcp://yw-agency1:8529 --server.authentication false --agency.activate true --agency.size 3 --agency.supervision true
+
+  yw-agency2:
+    container_name: yw-agency2
+    image: yw/arangodb:3.1.13
+    depends_on:
+      - yw-agency1
+    ports:
+      - "8529"
+    environment:
+      - ARANGO_NO_AUTH=1
+    command: arangod --server.endpoint tcp://0.0.0.0:8529 --agency.my-address=tcp://yw-agency2:8529 --server.authentication false --agency.activate true --agency.size 3 --agency.supervision true
+
+  yw-agency3:
+    container_name: yw-agency3
+    image: yw/arangodb:3.1.13
+    depends_on:
+      - yw-agency2
+    ports:
+      - "8529"
+    environment:
+      - ARANGO_NO_AUTH=1
+    command: /opt/wait-for-it.sh yw-agency1:8529 -- arangod --server.endpoint tcp://0.0.0.0:8529 --agency.my-address=tcp://yw-agency3:8529 --server.authentication false --agency.activate true --agency.size 3 --agency.endpoint tcp://yw-agency1:8529 --agency.endpoint tcp://yw-agency2:8529 --agency.endpoint tcp://yw-agency3:8529 --agency.supervision true
+
+  yw-primary1:
+    restart: always
+    container_name: yw-primary1
+    image: yw/arangodb:3.1.13
+    depends_on:
+      - yw-agency3
+    ports:
+      - "8529"
+    environment:
+      - ARANGO_NO_AUTH=1
+    command: /opt/wait-for-it.sh yw-agency3:8529 -- arangod --server.authentication=false --server.endpoint tcp://0.0.0.0:8529 --cluster.my-address tcp://yw-primary1:8529 --cluster.my-local-info db1 --cluster.my-role PRIMARY --cluster.agency-endpoint tcp://yw-agency1:8529 --cluster.agency-endpoint tcp://yw-agency2:8529 --cluster.agency-endpoint tcp://yw-agency3:8529
+
+  yw-primary2:
+    restart: always
+    container_name: yw-primary2
+    image: yw/arangodb:3.1.13
+    depends_on:
+      - yw-agency3
+    ports:
+      - "8529"
+    environment:
+      - ARANGO_NO_AUTH=1
+    command: /opt/wait-for-it.sh yw-agency3:8529 -- arangod --server.authentication=false --server.endpoint tcp://0.0.0.0:8529 --cluster.my-address tcp://yw-primary2:8529 --cluster.my-local-info db1 --cluster.my-role PRIMARY --cluster.agency-endpoint tcp://yw-agency1:8529 --cluster.agency-endpoint tcp://yw-agency2:8529 --cluster.agency-endpoint tcp://yw-agency3:8529
+
+  coordinator1:
+    restart: always
+    container_name: yw-coordinator1
+    image: yw/arangodb:3.1.13
+    depends_on:
+      - yw-primary1
+      - yw-primary2
+    ports:
+      - "11001:8529"
+    environment:
+      - ARANGO_NO_AUTH=1
+    command: /opt/wait-for-it.sh primary2:8529 -- arangod --server.authentication=false --server.endpoint tcp://0.0.0.0:8529 --cluster.my-address tcp://coordinator1:8529 --cluster.my-local-info coord1 --cluster.my-role COORDINATOR --cluster.agency-endpoint tcp://yw-agency1:8529 --cluster.agency-endpoint tcp://yw-agency2:8529 --cluster.agency-endpoint tcp://yw-agency3:8529
